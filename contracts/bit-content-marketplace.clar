@@ -228,3 +228,37 @@
     (ok true)
   )
 )
+
+;; Administrative Functions
+
+;; Update marketplace fee rate
+(define-public (adjust-fee-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender owner-address) ERR_UNAUTHORIZED)
+    (asserts! (<= new-rate u100) ERR_PRICE_INVALID)
+    (var-set exchange-fee new-rate)
+    (ok true)
+  )
+)
+
+;; Read-Only Query Functions
+
+;; Get content listing details
+(define-read-only (get-content-info (item-id uint))
+  (map-get? content-offerings { item-id: item-id })
+)
+
+;; Get trader statistics
+(define-read-only (get-trader-info (participant principal))
+  (map-get? trader-metrics { participant: participant })
+)
+
+;; Get total marketplace volume
+(define-read-only (get-exchange-stats)
+  (var-get exchange-volume)
+)
+
+;; Get current marketplace fee rate
+(define-read-only (get-current-fee)
+  (var-get exchange-fee)
+)
