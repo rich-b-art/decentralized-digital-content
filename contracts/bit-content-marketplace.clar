@@ -99,3 +99,79 @@
   )
   (stx-transfer? amount from to)
 )
+
+;; Content Management Functions
+
+;; Register new digital content for sale
+(define-public (register-content
+    (asking-price uint)
+    (summary (string-ascii 256))
+    (content-type (string-ascii 64))
+    (access-token (string-ascii 512))
+  )
+  (let ((current-id (var-get item-counter)))
+    (asserts! (> asking-price u0) ERR_PRICE_INVALID)
+    (asserts! (verify-summary summary) ERR_INPUT_INVALID)
+    (asserts! (verify-type content-type) ERR_INPUT_INVALID)
+    (asserts! (verify-token access-token) ERR_INPUT_INVALID)
+    (asserts!
+      (not (default-to false
+        (get tradeable (map-get? content-offerings { item-id: current-id }))
+      ))
+      ERR_DUPLICATE_ITEM
+    )
+    (map-set content-offerings { item-id: current-id } {
+      owner: tx-sender,
+      price-tag: asking-price,
+      content-summary: summary,
+      content-type: content-type,
+      tradeable: true,
+      creation-block: stacks-block-height,
+    })
+    (map-set content-keys { item-id: current-id } { secure-access-token: access-token })
+    (var-set item-counter (+ current-id u1))
+    (ok current-id)
+  )
+)
+
+;; Purchase digital content
+(define-public (acquire-content (item-id uint))
+  (let (
+      (item-info (unwrap! (map-get? content-offerings { item-id: item-id })
+        ERR_ITEM_UNAVAILABLE
+      ))
+      (total-cost (get price-tag item-info))
+      (merchant (get owner item-info))
+      (fee-amount (compute-fee total-cost))
+      (merchant-share (- total-cost fee-amount))
+    )
+    (asserts! (< item-id (var-get item-counter)) ERR_INPUT_INVALID)
+    (asserts! (get tradeable item-info) ERR_ITEM_UNAVAILABLE)
+    (asserts! (is-eq false (is-eq tx-sender merchant)) ERR_SELF_TRADE_BLOCKED)
+    (try! (process-payment tx-sender merchant merchant-share))
+    (try! (process-payment tx-sender owner-address fee-amount))
+    (map-set exchange-records {
+      customer: tx-sender,
+      item-id: item-id,
+    } {
+      timestamp: stacks-block-height,
+      cost: total-cost,
+      merchant: merchant,
+    })
+    (let ((merchant-stats (default-to {
+        trade-count: u0,
+        quality-score: u0,
+        last-active: u0,
+      }
+        (map-get? trader-metrics { participant: merchant })
+      )))
+      (map-set trader-metrics { participant: merchant } {
+        trade-count: (+ (get trade-count merchant-stats) u1),
+        quality-score: (get quality-score merchant-stats),
+        last-active: stacks-block-height,
+      })
+    )
+    (var-set exchange-volume (+ (var-get exchange-volume) u1))
+    (ok true)
+  )
+)
